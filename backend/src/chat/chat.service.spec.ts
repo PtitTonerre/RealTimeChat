@@ -27,4 +27,13 @@ describe('ChatService', () => {
   it('should reject messages longer than 500 characters', () => {
     expect(service.createMessage('a'.repeat(501))).toBeNull();
   });
+
+  it('should accept valid room names', () => {
+    expect(service.parseRoom(' gaming ')).toBe('gaming');
+  });
+
+  it('should reject unknown room names', () => {
+  expect(service.parseRoom('private')).toBeNull();
+  expect(service.parseRoom(42)).toBeNull();
+  });
 });
