@@ -1,3 +1,5 @@
+import { Logger } from '@nestjs/common';
+
 import {
   ConnectedSocket,
   MessageBody,
@@ -25,6 +27,7 @@ interface ClientSession {
 export class ChatGateway
   implements OnGatewayConnection, OnGatewayDisconnect
 {
+  private readonly logger = new Logger(ChatGateway.name);
   private readonly clients = new Map<WebSocket, ClientSession>();
   private guestNumber = 0;
 
@@ -38,14 +41,32 @@ export class ChatGateway
     client.send(JSON.stringify({ event, data }));
   }
 
-  private sendHistory(client: WebSocket, room: ChatRoom): void {
-    this.send(client, 'chat.history', {
-      room,
-      messages: this.chatService.getHistory(room),
-    });
+  private async sendHistory(
+    client: WebSocket,
+    room: ChatRoom,
+  ): Promise<void> {
+    try {
+      const messages = await this.chatService.getHistory(room);
+
+      // The client might have changed rooms while the query ran.
+      if (this.clients.get(client)?.room !== room) {
+        return;
+      }
+
+      this.send(client, 'chat.history', {
+        room,
+        messages,
+      });
+    } catch (error) {
+      this.logger.error('Failed to load chat history', error);
+
+      this.send(client, 'chat.error', {
+        message: 'Could not load chat history',
+      });
+    }
   }
 
-  handleConnection(client: WebSocket): void {
+  async handleConnection(client: WebSocket): Promise<void> {
     const sender: ChatSender = {
       id: randomUUID(),
       username: `Guest-${++this.guestNumber}`,
@@ -59,7 +80,8 @@ export class ChatGateway
     this.send(client, 'connected', 'Welcome to Real-Time Chat!');
     this.send(client, 'chat.identity', sender);
     this.send(client, 'chat.joined', { room: 'general' });
-    this.sendHistory(client, 'general');
+
+    await this.sendHistory(client, 'general');
   }
 
   handleDisconnect(client: WebSocket): void {
@@ -108,10 +130,10 @@ export class ChatGateway
   }
 
   @SubscribeMessage('chat.join')
-  joinRoom(
+  async joinRoom(
     @ConnectedSocket() client: WebSocket,
     @MessageBody() value: unknown,
-  ): void {
+  ): Promise<void> {
     const session = this.clients.get(client);
 
     if (!session) {
@@ -130,14 +152,15 @@ export class ChatGateway
     session.room = room;
 
     this.send(client, 'chat.joined', { room });
-    this.sendHistory(client, room);
+
+    await this.sendHistory(client, room);
   }
 
   @SubscribeMessage('chat.message')
-  handleMessage(
+  async handleMessage(
     @ConnectedSocket() client: WebSocket,
     @MessageBody() content: unknown,
-  ): void {
+  ): Promise<void> {
     const session = this.clients.get(client);
 
     if (!session) {
@@ -150,16 +173,27 @@ export class ChatGateway
       return;
     }
 
-    const savedMessage = this.chatService.saveMessage(
-      session.room,
-      message,
-      session.sender,
-    );
+    const room = session.room;
+    const sender = { ...session.sender };
 
-    for (const [connection, otherSession] of this.clients) {
-      if (otherSession.room === session.room) {
-        this.send(connection, 'chat.message', savedMessage);
+    try {
+      const savedMessage = await this.chatService.saveMessage(
+        room,
+        message,
+        sender,
+      );
+
+      for (const [connection, otherSession] of this.clients) {
+        if (otherSession.room === room) {
+          this.send(connection, 'chat.message', savedMessage);
+        }
       }
+    } catch (error) {
+      this.logger.error('Failed to save chat message', error);
+
+      this.send(client, 'chat.error', {
+        message: 'Could not save your message',
+      });
     }
   }
 }

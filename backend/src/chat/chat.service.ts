@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
+
+import { PrismaService } from '../prisma/prisma.service.js';
 
 export const CHAT_ROOMS = [
   'general',
@@ -27,8 +28,7 @@ export interface RoomMessage extends ChatMessage {
 
 @Injectable()
 export class ChatService {
-  private readonly history = new Map<ChatRoom, RoomMessage[]>();
-  private readonly maxHistory = 50;
+  constructor(private readonly prisma: PrismaService) {}
 
   createMessage(content: unknown): ChatMessage | null {
     if (typeof content !== 'string') {
@@ -68,33 +68,63 @@ export class ChatService {
     return username;
   }
 
-  saveMessage(
+  async saveMessage(
     room: ChatRoom,
     message: ChatMessage,
     sender: ChatSender,
-  ): RoomMessage {
-    const savedMessage: RoomMessage = {
-      id: randomUUID(),
+  ): Promise<RoomMessage> {
+    const databaseRoom = await this.prisma.room.upsert({
+      where: { name: room },
+      update: {},
+      create: { name: room },
+    });
+
+    const saved = await this.prisma.message.create({
+      data: {
+        content: message.content,
+        senderId: sender.id,
+        senderUsername: sender.username,
+        room: {
+          connect: { id: databaseRoom.id },
+        },
+      },
+    });
+
+    return {
+      id: saved.id,
       room,
-      content: message.content,
-      sender: { ...sender },
-      sentAt: new Date().toISOString(),
+      content: saved.content,
+      sender: {
+        id: saved.senderId,
+        username: saved.senderUsername,
+      },
+      sentAt: saved.sentAt.toISOString(),
     };
-
-    const messages = this.history.get(room) ?? [];
-
-    messages.push(savedMessage);
-
-    if (messages.length > this.maxHistory) {
-      messages.shift();
-    }
-
-    this.history.set(room, messages);
-
-    return savedMessage;
   }
 
-  getHistory(room: ChatRoom): RoomMessage[] {
-    return [...(this.history.get(room) ?? [])];
+  async getHistory(room: ChatRoom): Promise<RoomMessage[]> {
+    const messages = await this.prisma.message.findMany({
+      where: {
+        room: {
+          is: { name: room },
+        },
+      },
+      orderBy: [
+        { sentAt: 'desc' },
+        { id: 'desc' },
+      ],
+      take: 50,
+    });
+
+    return messages.reverse().map((message) => ({
+      id: message.id,
+      room,
+      content: message.content,
+      sender: {
+        id: message.senderId,
+        username: message.senderUsername,
+      },
+      sentAt: message.sentAt.toISOString(),
+    }));
   }
 }

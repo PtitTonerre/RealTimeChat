@@ -1,105 +1,156 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import type { PrismaService } from '../prisma/prisma.service.js';
 import { ChatService } from './chat.service.js';
 
-describe('ChatService', () => {
-  const service = new ChatService();
+function createMockDatabase() {
+  return {
+    room: {
+      upsert: vi.fn().mockResolvedValue({
+        id: 'room-1',
+        name: 'general',
+      }),
+    },
+    message: {
+      create: vi.fn().mockResolvedValue({
+        id: 'message-1',
+        content: 'Hello!',
+        senderId: 'user-1',
+        senderUsername: 'Alice',
+        sentAt: new Date('2026-11-21T12:00:00.000Z'),
+      }),
+      findMany: vi.fn().mockResolvedValue([]),
+    },
+  };
+}
 
-  it('should create a valid message', () => {
+describe('ChatService', () => {
+  let service: ChatService;
+  let db: ReturnType<typeof createMockDatabase>;
+
+  const sender = {
+    id: 'user-1',
+    username: 'Alice',
+  };
+
+  beforeEach(() => {
+    db = createMockDatabase();
+    service = new ChatService(db as unknown as PrismaService);
+  });
+
+  it('creates a valid message', () => {
     expect(service.createMessage('Hello!')).toEqual({
       content: 'Hello!',
     });
   });
 
-  it('should trim whitespace', () => {
+  it('trims whitespace', () => {
     expect(service.createMessage('  Hello!  ')).toEqual({
       content: 'Hello!',
     });
   });
 
-  it('should reject empty messages', () => {
+  it('rejects empty messages', () => {
     expect(service.createMessage('   ')).toBeNull();
   });
 
-  it('should reject non-string values', () => {
+  it('rejects non-string messages', () => {
     expect(service.createMessage(42)).toBeNull();
   });
 
-  it('should reject messages longer than 500 characters', () => {
+  it('rejects messages over 500 characters', () => {
     expect(service.createMessage('a'.repeat(501))).toBeNull();
   });
 
-  it('should accept valid room names', () => {
+  it('accepts valid rooms', () => {
     expect(service.parseRoom(' gaming ')).toBe('gaming');
   });
 
-  it('should reject unknown room names', () => {
-  expect(service.parseRoom('private')).toBeNull();
-  expect(service.parseRoom(42)).toBeNull();
+  it('rejects unknown rooms', () => {
+    expect(service.parseRoom('unknown')).toBeNull();
   });
-});
 
+  it('accepts valid usernames', () => {
+    expect(service.parseUsername(' Alice_2 ')).toBe('Alice_2');
+  });
 
-it('should save and retrieve room history', () => {
-  const chat = new ChatService();
+  it('rejects invalid usernames', () => {
+    expect(service.parseUsername('A')).toBeNull();
+    expect(service.parseUsername('Alice Bob')).toBeNull();
+    expect(service.parseUsername(42)).toBeNull();
+  });
 
-  const sender = {
-    id: 'user-1',
-    username: 'Alice',
-  };
+  it('saves a message through Prisma', async () => {
+    const result = await service.saveMessage(
+      'general',
+      { content: 'Hello!' },
+      sender,
+    );
 
-  chat.saveMessage(
-    'general',
-    { content: 'Hello!' },
-    sender,
-  );
+    expect(db.room.upsert).toHaveBeenCalledWith({
+      where: { name: 'general' },
+      update: {},
+      create: { name: 'general' },
+    });
 
-  chat.saveMessage(
-    'gaming',
-    { content: 'Game on!' },
-    sender,
-  );
+    expect(db.message.create).toHaveBeenCalledWith({
+      data: {
+        content: 'Hello!',
+        senderId: 'user-1',
+        senderUsername: 'Alice',
+        room: {
+          connect: { id: 'room-1' },
+        },
+      },
+    });
 
-  expect(chat.getHistory('general')).toEqual([
-    {
-      id: expect.any(String),
+    expect(result).toEqual({
+      id: 'message-1',
       room: 'general',
       content: 'Hello!',
       sender,
-      sentAt: expect.any(String),
-    },
-  ]);
+      sentAt: '2026-11-21T12:00:00.000Z',
+    });
+  });
 
-  expect(chat.getHistory('gaming')).toEqual([
-    {
-      id: expect.any(String),
-      room: 'gaming',
-      content: 'Game on!',
-      sender,
-      sentAt: expect.any(String),
-    },
-  ]);
-});
+  it('returns history in chronological order', async () => {
+    db.message.findMany.mockResolvedValue([
+      {
+        id: 'new',
+        content: 'Second',
+        senderId: 'user-1',
+        senderUsername: 'Alice',
+        sentAt: new Date('2026-11-21T12:01:00.000Z'),
+      },
+      {
+        id: 'old',
+        content: 'First',
+        senderId: 'user-1',
+        senderUsername: 'Alice',
+        sentAt: new Date('2026-11-21T12:00:00.000Z'),
+      },
+    ]);
 
+    const history = await service.getHistory('general');
 
-it('should keep only the last 50 messages', () => {
-  const chat = new ChatService();
+    expect(history.map((message) => message.content)).toEqual([
+      'First',
+      'Second',
+    ]);
+  });
 
-  const sender = {
-    id: 'user-1',
-    username: 'Alice',
-  };
+  it('requests only the latest 50 messages', async () => {
+    await service.getHistory('general');
 
-  for (let i = 0; i < 55; i++) {
-    chat.saveMessage(
-      'general',
-      { content: `Message ${i}` },
-      sender,
-    );
-  }
-
-  const history = chat.getHistory('general');
-
-  expect(history).toHaveLength(50);
-  expect(history[0].content).toBe('Message 5');
-  expect(history[49].content).toBe('Message 54');
+    expect(db.message.findMany).toHaveBeenCalledWith({
+      where: {
+        room: { is: { name: 'general' } },
+      },
+      orderBy: [
+        { sentAt: 'desc' },
+        { id: 'desc' },
+      ],
+      take: 50,
+    });
+  });
 });
