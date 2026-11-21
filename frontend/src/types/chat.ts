@@ -6,13 +6,22 @@ export const ROOMS = [
 
 export type Room = (typeof ROOMS)[number];
 
+export interface ChatSender {
+  id: string;
+  username: string;
+}
+
 export interface ChatMessage {
+  id: string;
   room: Room;
   content: string;
+  sender: ChatSender;
+  sentAt: string;
 }
 
 export type ServerEvent =
   | { event: 'connected'; data: string }
+  | { event: 'chat.identity'; data: ChatSender }
   | { event: 'chat.joined'; data: { room: Room } }
   | { event: 'chat.message'; data: ChatMessage }
   | {

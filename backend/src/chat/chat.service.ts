@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 
 export const CHAT_ROOMS = [
   'general',
@@ -8,18 +9,25 @@ export const CHAT_ROOMS = [
 
 export type ChatRoom = (typeof CHAT_ROOMS)[number];
 
+export interface ChatSender {
+  id: string;
+  username: string;
+}
+
 export interface ChatMessage {
   content: string;
 }
 
 export interface RoomMessage extends ChatMessage {
+  id: string;
   room: ChatRoom;
+  sender: ChatSender;
+  sentAt: string;
 }
 
 @Injectable()
 export class ChatService {
   private readonly history = new Map<ChatRoom, RoomMessage[]>();
-
   private readonly maxHistory = 50;
 
   createMessage(content: unknown): ChatMessage | null {
@@ -46,10 +54,31 @@ export class ChatService {
     return CHAT_ROOMS.find((name) => name === room) ?? null;
   }
 
-  saveMessage(room: ChatRoom, message: ChatMessage): RoomMessage {
+  parseUsername(value: unknown): string | null {
+    if (typeof value !== 'string') {
+      return null;
+    }
+
+    const username = value.trim();
+
+    if (!/^[\p{L}\p{N}_-]{2,20}$/u.test(username)) {
+      return null;
+    }
+
+    return username;
+  }
+
+  saveMessage(
+    room: ChatRoom,
+    message: ChatMessage,
+    sender: ChatSender,
+  ): RoomMessage {
     const savedMessage: RoomMessage = {
+      id: randomUUID(),
       room,
       content: message.content,
+      sender: { ...sender },
+      sentAt: new Date().toISOString(),
     };
 
     const messages = this.history.get(room) ?? [];

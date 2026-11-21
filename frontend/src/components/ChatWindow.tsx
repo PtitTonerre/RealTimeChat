@@ -1,8 +1,4 @@
-import type {
-  ChatMessage,
-  Room,
-} from '../types/chat';
-
+import type { ChatMessage, Room } from '../types/chat';
 import { MessageInput } from './MessageInput';
 
 interface ChatWindowProps {
@@ -28,19 +24,32 @@ export function ChatWindow({
     <main className="chat">
       <header className="chat-header">
         <h2># {room}</h2>
-
-        <span>
-          {connected ? '● Connected' : '○ Disconnected'}
-        </span>
+        <span>{connected ? '● Connected' : '○ Disconnected'}</span>
       </header>
 
       <section className="messages">
         {visibleMessages.length === 0 ? (
           <p className="empty">No messages yet. Say hello!</p>
         ) : (
-          visibleMessages.map((message, index) => (
-            <div className="message" key={index}>
-              {message.content}
+          visibleMessages.map((message) => (
+            <div className="message" key={message.id}>
+              <div className="message-meta">
+                <strong>{message.sender.username}</strong>
+
+                <time dateTime={message.sentAt}>
+                  {new Date(message.sentAt).toLocaleTimeString(
+                    undefined,
+                    {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    },
+                  )}
+                </time>
+              </div>
+
+              <div className="message-text">
+                {message.content}
+              </div>
             </div>
           ))
         )}

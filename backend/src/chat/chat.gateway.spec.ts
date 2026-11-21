@@ -44,6 +44,7 @@ describe('ChatGateway', () => {
     );
   });
 
+
   it('should broadcast within general', () => {
     const first = createMockClient();
     const second = createMockClient();
@@ -56,13 +57,32 @@ describe('ChatGateway', () => {
 
     gateway.handleMessage(first.client, ' Hello! ');
 
-    const expected = JSON.stringify({
+    expect(first.send).toHaveBeenCalledOnce();
+    expect(second.send).toHaveBeenCalledOnce();
+
+    const firstMessage = JSON.parse(
+      first.send.mock.calls[0][0] as string,
+    );
+
+    const secondMessage = JSON.parse(
+      second.send.mock.calls[0][0] as string,
+    );
+
+    expect(firstMessage).toMatchObject({
       event: 'chat.message',
-      data: { room: 'general', content: 'Hello!' },
+      data: {
+        id: expect.any(String),
+        room: 'general',
+        content: 'Hello!',
+        sender: {
+          id: expect.any(String),
+          username: 'Guest-1',
+        },
+        sentAt: expect.any(String),
+      },
     });
 
-    expect(first.send).toHaveBeenCalledWith(expected);
-    expect(second.send).toHaveBeenCalledWith(expected);
+    expect(secondMessage).toEqual(firstMessage);
   });
 
   it('should isolate messages between rooms', () => {

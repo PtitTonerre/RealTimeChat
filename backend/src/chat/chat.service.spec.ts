@@ -38,28 +38,63 @@ describe('ChatService', () => {
   });
 });
 
+
 it('should save and retrieve room history', () => {
   const chat = new ChatService();
 
-  chat.saveMessage('general', { content: 'Hello!' });
-  chat.saveMessage('gaming', { content: 'Game on!' });
+  const sender = {
+    id: 'user-1',
+    username: 'Alice',
+  };
+
+  chat.saveMessage(
+    'general',
+    { content: 'Hello!' },
+    sender,
+  );
+
+  chat.saveMessage(
+    'gaming',
+    { content: 'Game on!' },
+    sender,
+  );
 
   expect(chat.getHistory('general')).toEqual([
-    { room: 'general', content: 'Hello!' },
+    {
+      id: expect.any(String),
+      room: 'general',
+      content: 'Hello!',
+      sender,
+      sentAt: expect.any(String),
+    },
   ]);
 
   expect(chat.getHistory('gaming')).toEqual([
-    { room: 'gaming', content: 'Game on!' },
+    {
+      id: expect.any(String),
+      room: 'gaming',
+      content: 'Game on!',
+      sender,
+      sentAt: expect.any(String),
+    },
   ]);
 });
+
 
 it('should keep only the last 50 messages', () => {
   const chat = new ChatService();
 
+  const sender = {
+    id: 'user-1',
+    username: 'Alice',
+  };
+
   for (let i = 0; i < 55; i++) {
-    chat.saveMessage('general', {
-      content: `Message ${i}`,
-    });
+    chat.saveMessage(
+      'general',
+      { content: `Message ${i}` },
+      sender,
+    );
   }
 
   const history = chat.getHistory('general');

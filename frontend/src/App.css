@@ -119,3 +119,64 @@ button:disabled {
   color: #f87171;
   padding: 0 20px;
 }
+
+/* User profile */
+
+.profile {
+  margin-bottom: 32px;
+}
+
+.profile strong {
+  display: block;
+  margin: 12px 0;
+  overflow-wrap: anywhere;
+}
+
+.username-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.username-form input {
+  width: 100%;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #475569;
+  border-radius: 8px;
+  background: #1e293b;
+  color: white;
+}
+
+.username-form button {
+  padding: 10px;
+  border: none;
+  border-radius: 8px;
+  background: #6366f1;
+  color: white;
+  cursor: pointer;
+}
+
+/* Message details */
+
+.message-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.message-meta strong {
+  color: #a5b4fc;
+  font-size: 14px;
+}
+
+.message-meta time {
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.message-text {
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
