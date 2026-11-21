@@ -1,4 +1,3 @@
-
 # Dependencies
 node_modules/
 
@@ -7,6 +6,9 @@ dist/
 build/
 coverage/
 .next/
+
+# TypeScript compilation cache
+*.tsbuildinfo
 
 # Environment variables and secrets
 .env
@@ -41,5 +43,6 @@ Thumbs.db
 *.sqlite
 *.sqlite3
 
-# TypeScript compilation cache
-*.tsbuildinfo
+# Vite
+.vite/
+vite.svg

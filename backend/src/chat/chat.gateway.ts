@@ -26,6 +26,13 @@ export class ChatGateway
     client.send(JSON.stringify({ event, data }));
   }
 
+  private sendHistory(client: WebSocket, room: ChatRoom): void {
+    this.send(client, 'chat.history', {
+      room,
+      messages: this.chatService.getHistory(room),
+    });
+  }
+
   handleConnection(client: WebSocket): void {
     this.clients.set(client, 'general');
 
@@ -34,6 +41,8 @@ export class ChatGateway
     this.send(client, 'chat.joined', {
       room: 'general',
     });
+
+    this.sendHistory(client, 'general');
   }
 
   handleDisconnect(client: WebSocket): void {
@@ -63,6 +72,8 @@ export class ChatGateway
     this.send(client, 'chat.joined', {
       room: newRoom,
     });
+
+    this.sendHistory(client, newRoom);
   }
 
   @SubscribeMessage('chat.message')
@@ -82,12 +93,14 @@ export class ChatGateway
       return;
     }
 
+    const savedMessage = this.chatService.saveMessage(
+      senderRoom,
+      message,
+    );
+
     for (const [connection, room] of this.clients) {
       if (room === senderRoom) {
-        this.send(connection, 'chat.message', {
-          room: senderRoom,
-          content: message.content,
-        });
+        this.send(connection, 'chat.message', savedMessage);
       }
     }
   }
