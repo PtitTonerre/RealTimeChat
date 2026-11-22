@@ -1,19 +1,33 @@
 import {
   ConflictException,
   Injectable,
+  UnauthorizedException,
 } from '@nestjs/common';
 
+import { createHash, randomBytes } from 'node:crypto';
 import argon2 from 'argon2';
 
 import { Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+
+import type { LoginDto } from './dto/login.dto.js';
 import type { RegisterDto } from './dto/register.dto.js';
 
-export interface RegisteredUser {
+export const SESSION_COOKIE = 'rtc_session';
+export const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
+
+export interface PublicUser {
   id: string;
   username: string;
   email: string;
+}
+
+export interface RegisteredUser extends PublicUser {
   createdAt: string;
+}
+
+function hashSessionToken(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
 }
 
 @Injectable()
@@ -66,5 +80,95 @@ export class AuthService {
 
       throw error;
     }
+  }
+
+  async login(
+    dto: LoginDto,
+  ): Promise<{ token: string; user: PublicUser }> {
+    const user = await this.prisma.user.findUnique({
+      where: {
+        emailKey: dto.email.trim().toLowerCase(),
+      },
+      select: {
+        id: true,
+        username: true,
+        email: true,
+        passwordHash: true,
+      },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    const passwordValid = await argon2.verify(
+      user.passwordHash,
+      dto.password,
+    );
+
+    if (!passwordValid) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    const token = randomBytes(32).toString('hex');
+    const tokenHash = hashSessionToken(token);
+
+    await this.prisma.session.create({
+      data: {
+        tokenHash,
+        userId: user.id,
+        expiresAt: new Date(Date.now() + SESSION_DURATION_MS),
+      },
+    });
+
+    return {
+      token,
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+      },
+    };
+  }
+
+  async getAuthenticatedUser(
+    token: string | undefined,
+  ): Promise<PublicUser | null> {
+    if (!token) {
+      return null;
+    }
+
+    const session = await this.prisma.session.findUnique({
+      where: {
+        tokenHash: hashSessionToken(token),
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            username: true,
+            email: true,
+          },
+        },
+      },
+    });
+
+    if (!session || session.expiresAt <= new Date()) {
+      return null;
+    }
+
+    return session.user;
+  }
+
+  async logout(token: string | undefined): Promise<void> {
+    if (!token) {
+      return;
+    }
+
+    await this.prisma.session.deleteMany({
+      where: {
+        tokenHash: hashSessionToken(token),
+      },
+    });
   }
 }

@@ -20,6 +20,7 @@ model User {
   updatedAt DateTime @updatedAt
 
   messages Message[]
+  sessions Session[]
 }
 
 model Room {
@@ -43,4 +44,17 @@ model Message {
 
   @@index([roomId, sentAt])
   @@index([userId])
+}
+
+model Session {
+  id        String   @id @default(uuid())
+  tokenHash String   @unique @db.VarChar(64)
+  userId    String
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
 }
