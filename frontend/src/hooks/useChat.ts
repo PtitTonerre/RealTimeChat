@@ -7,7 +7,10 @@ import type {
   ServerEvent,
 } from '../types/chat';
 
-export function useChat() {
+export function useChat(
+  userId: string | null,
+  checkingSession: boolean,
+) {
   const socketRef = useRef<WebSocket | null>(null);
 
   const [connected, setConnected] = useState(false);
@@ -17,21 +20,28 @@ export function useChat() {
   const [error, setError] = useState('');
 
   useEffect(() => {
+    // Wait until the HTTP session has been checked.
+    if (checkingSession) {
+      return;
+    }
+
     const socket = new WebSocket('ws://localhost:3000/ws');
     socketRef.current = socket;
 
     let active = true;
 
     socket.onopen = () => {
-      if (active) {
-        setConnected(true);
-      }
+      if (!active) return;
+
+      setConnected(true);
+      setIdentity(null);
+      setRoom('general');
+      setMessages([]);
+      setError('');
     };
 
     socket.onmessage = (event: MessageEvent) => {
-      if (!active) {
-        return;
-      }
+      if (!active) return;
 
       try {
         const message = JSON.parse(
@@ -46,23 +56,34 @@ export function useChat() {
 
           case 'chat.joined':
             setRoom(message.data.room);
-            setError('');
             break;
 
           case 'chat.message':
-            setMessages((previous) => [
-              ...previous,
-              message.data,
-            ]);
+            setMessages((previous) =>
+              previous.some((item) => item.id === message.data.id)
+                ? previous
+                : [...previous, message.data],
+            );
             break;
 
           case 'chat.history':
-            setMessages((previous) => [
-              ...previous.filter(
+            setMessages((previous) => {
+              const otherRooms = previous.filter(
                 (item) => item.room !== message.data.room,
-              ),
-              ...message.data.messages,
-            ]);
+              );
+
+              const currentRoom = previous.filter(
+                (item) => item.room === message.data.room,
+              );
+
+              const merged = new Map(
+                [...message.data.messages, ...currentRoom].map(
+                  (item) => [item.id, item],
+                ),
+              );
+
+              return [...otherRooms, ...merged.values()];
+            });
             break;
 
           case 'chat.error':
@@ -71,6 +92,12 @@ export function useChat() {
         }
       } catch {
         setError('Invalid server message');
+      }
+    };
+
+    socket.onerror = () => {
+      if (active) {
+        setError('WebSocket connection error');
       }
     };
 
@@ -89,7 +116,7 @@ export function useChat() {
         socketRef.current = null;
       }
     };
-  }, []);
+  }, [userId, checkingSession]);
 
   function sendEvent(event: string, data: string): boolean {
     const socket = socketRef.current;

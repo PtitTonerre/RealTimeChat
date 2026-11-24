@@ -1,4 +1,8 @@
 import { Logger } from '@nestjs/common';
+import type { IncomingMessage } from 'node:http';
+import { randomUUID } from 'node:crypto';
+import { parseCookie } from 'cookie';
+import { WebSocket } from 'ws';
 
 import {
   ConnectedSocket,
@@ -9,8 +13,10 @@ import {
   WebSocketGateway,
 } from '@nestjs/websockets';
 
-import { randomUUID } from 'node:crypto';
-import { WebSocket } from 'ws';
+import {
+  AuthService,
+  SESSION_COOKIE,
+} from '../auth/auth.service.js';
 
 import {
   ChatService,
@@ -21,6 +27,8 @@ import {
 interface ClientSession {
   room: ChatRoom;
   sender: ChatSender;
+  userId: string | null;
+  sessionToken: string | null;
 }
 
 @WebSocketGateway({ path: '/ws' })
@@ -31,14 +39,49 @@ export class ChatGateway
   private readonly clients = new Map<WebSocket, ClientSession>();
   private guestNumber = 0;
 
-  constructor(private readonly chatService: ChatService) {}
+  constructor(
+    private readonly chatService: ChatService,
+    private readonly authService: AuthService,
+  ) {}
 
-  private send(client: WebSocket, event: string, data: unknown): void {
+  private send(
+    client: WebSocket,
+    event: string,
+    data: unknown,
+  ): void {
     if (client.readyState !== WebSocket.OPEN) {
       return;
     }
 
     client.send(JSON.stringify({ event, data }));
+  }
+
+  private async checkSession(
+    client: WebSocket,
+    session: ClientSession,
+  ): Promise<boolean> {
+    if (!session.sessionToken) {
+      return true;
+    }
+
+    try {
+      const user = await this.authService.getAuthenticatedUser(
+        session.sessionToken,
+      );
+
+      if (!user || user.id !== session.userId) {
+        this.clients.delete(client);
+        client.close(1008, 'Session expired');
+        return false;
+      }
+
+      return true;
+    } catch (error) {
+      this.logger.error('Session validation failed', error);
+      this.clients.delete(client);
+      client.close(1011, 'Authentication unavailable');
+      return false;
+    }
   }
 
   private async sendHistory(
@@ -48,15 +91,11 @@ export class ChatGateway
     try {
       const messages = await this.chatService.getHistory(room);
 
-      // The client might have changed rooms while the query ran.
       if (this.clients.get(client)?.room !== room) {
         return;
       }
 
-      this.send(client, 'chat.history', {
-        room,
-        messages,
-      });
+      this.send(client, 'chat.history', { room, messages });
     } catch (error) {
       this.logger.error('Failed to load chat history', error);
 
@@ -66,15 +105,55 @@ export class ChatGateway
     }
   }
 
-  async handleConnection(client: WebSocket): Promise<void> {
-    const sender: ChatSender = {
-      id: randomUUID(),
-      username: `Guest-${++this.guestNumber}`,
-    };
+  async handleConnection(
+    client: WebSocket,
+    request: IncomingMessage,
+  ): Promise<void> {
+    // Only accept connections from our local React frontend.
+    if (request.headers.origin !== 'http://localhost:5173') {
+      client.close(1008, 'Origin not allowed');
+      return;
+    }
+
+    const cookies = parseCookie(request.headers.cookie ?? '');
+    const token = cookies[SESSION_COOKIE];
+
+    let user: Awaited<
+      ReturnType<AuthService['getAuthenticatedUser']>
+    >;
+
+    try {
+      user = await this.authService.getAuthenticatedUser(token);
+    } catch (error) {
+      this.logger.error('WebSocket authentication failed', error);
+      client.close(1011, 'Authentication unavailable');
+      return;
+    }
+
+    if (client.readyState !== WebSocket.OPEN) {
+      return;
+    }
+
+    if (token && !user) {
+      client.close(1008, 'Invalid session');
+      return;
+    }
+
+    const sender: ChatSender = user
+      ? {
+          id: user.id,
+          username: user.username,
+        }
+      : {
+          id: randomUUID(),
+          username: `Guest-${++this.guestNumber}`,
+        };
 
     this.clients.set(client, {
       room: 'general',
       sender,
+      userId: user?.id ?? null,
+      sessionToken: user ? token ?? null : null,
     });
 
     this.send(client, 'connected', 'Welcome to Real-Time Chat!');
@@ -89,13 +168,20 @@ export class ChatGateway
   }
 
   @SubscribeMessage('chat.set_username')
-  setUsername(
+  async setUsername(
     @ConnectedSocket() client: WebSocket,
     @MessageBody() value: unknown,
-  ): void {
+  ): Promise<void> {
     const session = this.clients.get(client);
 
     if (!session) {
+      return;
+    }
+
+    if (session.userId) {
+      this.send(client, 'chat.error', {
+        message: 'Account usernames cannot be changed from chat',
+      });
       return;
     }
 
@@ -108,10 +194,30 @@ export class ChatGateway
       return;
     }
 
+    try {
+      if (await this.chatService.usernameExists(username)) {
+        this.send(client, 'chat.error', {
+          message: 'Username is reserved by a registered account',
+        });
+        return;
+      }
+    } catch (error) {
+      this.logger.error('Username validation failed', error);
+      this.send(client, 'chat.error', {
+        message: 'Could not validate username',
+      });
+      return;
+    }
+
+    if (this.clients.get(client) !== session) {
+      return;
+    }
+
     const usernameTaken = [...this.clients.values()].some(
       (other) =>
         other.sender.id !== session.sender.id &&
-        other.sender.username.toLowerCase() === username.toLowerCase(),
+        other.sender.username.toLowerCase() ===
+          username.toLowerCase(),
     );
 
     if (usernameTaken) {
@@ -121,10 +227,7 @@ export class ChatGateway
       return;
     }
 
-    session.sender = {
-      ...session.sender,
-      username,
-    };
+    session.sender = { ...session.sender, username };
 
     this.send(client, 'chat.identity', session.sender);
   }
@@ -136,7 +239,11 @@ export class ChatGateway
   ): Promise<void> {
     const session = this.clients.get(client);
 
-    if (!session) {
+    if (!session || !(await this.checkSession(client, session))) {
+      return;
+    }
+
+    if (this.clients.get(client) !== session) {
       return;
     }
 
@@ -152,7 +259,6 @@ export class ChatGateway
     session.room = room;
 
     this.send(client, 'chat.joined', { room });
-
     await this.sendHistory(client, room);
   }
 
@@ -163,7 +269,11 @@ export class ChatGateway
   ): Promise<void> {
     const session = this.clients.get(client);
 
-    if (!session) {
+    if (!session || !(await this.checkSession(client, session))) {
+      return;
+    }
+
+    if (this.clients.get(client) !== session) {
       return;
     }
 
@@ -181,6 +291,7 @@ export class ChatGateway
         room,
         message,
         sender,
+        session.userId,
       );
 
       for (const [connection, otherSession] of this.clients) {

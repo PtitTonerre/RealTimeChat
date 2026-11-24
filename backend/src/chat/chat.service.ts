@@ -1,5 +1,4 @@
 import { Injectable } from '@nestjs/common';
-
 import { PrismaService } from '../prisma/prisma.service.js';
 
 export const CHAT_ROOMS = [
@@ -68,15 +67,33 @@ export class ChatService {
     return username;
   }
 
+  async usernameExists(username: string): Promise<boolean> {
+    const user = await this.prisma.user.findUnique({
+      where: {
+        usernameKey: username.toLowerCase(),
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    return user !== null;
+  }
+
   async saveMessage(
     room: ChatRoom,
     message: ChatMessage,
     sender: ChatSender,
+    userId: string | null = null,
   ): Promise<RoomMessage> {
     const databaseRoom = await this.prisma.room.upsert({
-      where: { name: room },
+      where: {
+        name: room,
+      },
       update: {},
-      create: { name: room },
+      create: {
+        name: room,
+      },
     });
 
     const saved = await this.prisma.message.create({
@@ -84,9 +101,22 @@ export class ChatService {
         content: message.content,
         senderId: sender.id,
         senderUsername: sender.username,
+
         room: {
-          connect: { id: databaseRoom.id },
+          connect: {
+            id: databaseRoom.id,
+          },
         },
+
+        ...(userId
+          ? {
+              user: {
+                connect: {
+                  id: userId,
+                },
+              },
+            }
+          : {}),
       },
     });
 
@@ -106,7 +136,9 @@ export class ChatService {
     const messages = await this.prisma.message.findMany({
       where: {
         room: {
-          is: { name: room },
+          is: {
+            name: room,
+          },
         },
       },
       orderBy: [

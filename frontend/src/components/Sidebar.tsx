@@ -2,12 +2,15 @@ import { useState } from 'react';
 import type { FormEvent } from 'react';
 
 import { ROOMS } from '../types/chat';
+
+import type { AuthUser } from '../types/auth';
 import type { ChatSender, Room } from '../types/chat';
 
 interface SidebarProps {
   room: Room;
   connected: boolean;
   identity: ChatSender | null;
+  user: AuthUser | null;
   onJoinRoom: (room: Room) => void;
   onChangeUsername: (username: string) => boolean;
 }
@@ -16,6 +19,7 @@ export function Sidebar({
   room,
   connected,
   identity,
+  user,
   onJoinRoom,
   onChangeUsername,
 }: SidebarProps) {
@@ -36,25 +40,40 @@ export function Sidebar({
       <div className="profile">
         <p className="sidebar-label">YOUR PROFILE</p>
 
-        <strong>{identity?.username ?? 'Connecting...'}</strong>
+        <strong>
+          {user?.username ?? identity?.username ?? 'Connecting...'}
+        </strong>
 
-        <form className="username-form" onSubmit={handleSubmit}>
-          <input
-            aria-label="New username"
-            value={username}
-            onChange={(event) => setUsername(event.target.value)}
-            placeholder="New username"
-            maxLength={20}
-            disabled={!connected}
-          />
-
-          <button
-            type="submit"
-            disabled={!connected || username.trim().length < 2}
+        {user ? (
+          <p className="profile-authenticated">
+            Authenticated account
+          </p>
+        ) : (
+          <form
+            className="username-form"
+            onSubmit={handleSubmit}
           >
-            Update
-          </button>
-        </form>
+            <input
+              aria-label="New username"
+              value={username}
+              onChange={(event) => setUsername(event.target.value)}
+              placeholder="New username"
+              maxLength={20}
+              disabled={!connected || !identity}
+            />
+
+            <button
+              type="submit"
+              disabled={
+                !connected ||
+                !identity ||
+                username.trim().length < 2
+              }
+            >
+              Update
+            </button>
+          </form>
+        )}
       </div>
 
       <p className="sidebar-label">CHANNELS</p>
@@ -64,7 +83,7 @@ export function Sidebar({
           key={name}
           className={room === name ? 'room active' : 'room'}
           onClick={() => onJoinRoom(name)}
-          disabled={!connected}
+          disabled={!connected || !identity}
         >
           # {name}
         </button>
