@@ -12,13 +12,17 @@ import {
 
 import type { Request, Response } from 'express';
 
+import { AuthService } from './auth.service.js';
+
 import {
-  AuthService,
   SESSION_COOKIE,
   SESSION_DURATION_MS,
-  type PublicUser,
-  type RegisteredUser,
-} from './auth.service.js';
+} from './session.service.js';
+
+import type {
+  PublicUser,
+  RegisteredUser,
+} from './auth.types.js';
 
 import { LoginDto } from './dto/login.dto.js';
 import { RegisterDto } from './dto/register.dto.js';

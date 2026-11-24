@@ -1,10 +1,12 @@
+
 import { ConflictException } from '@nestjs/common';
 import argon2 from 'argon2';
 import { describe, expect, it, vi } from 'vitest';
-
 import { Prisma } from '../generated/prisma/client.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import { AuthService } from './auth.service.js';
+import { SessionService } from './session.service.js';
+import { UsersService } from './users.service.js';
 
 describe('AuthService', () => {
   const input = {
@@ -25,8 +27,11 @@ describe('AuthService', () => {
       },
     };
 
+    const prisma = db as unknown as PrismaService;
+
     const service = new AuthService(
-      db as unknown as PrismaService,
+      new UsersService(prisma),
+      new SessionService(prisma),
     );
 
     return { service, db };
@@ -41,7 +46,6 @@ describe('AuthService', () => {
 
     expect(savedData.usernameKey).toBe('alice');
     expect(savedData.emailKey).toBe('alice@example.com');
-
     expect(savedData.passwordHash).not.toBe(input.password);
 
     expect(

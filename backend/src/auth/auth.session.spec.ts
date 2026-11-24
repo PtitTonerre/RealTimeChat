@@ -1,11 +1,11 @@
 import { UnauthorizedException } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import argon2 from 'argon2';
-
 import { describe, expect, it, vi } from 'vitest';
-
 import type { PrismaService } from '../prisma/prisma.service.js';
 import { AuthService } from './auth.service.js';
+import { SessionService } from './session.service.js';
+import { UsersService } from './users.service.js';
 
 function setup() {
   const db = {
@@ -19,7 +19,12 @@ function setup() {
     },
   };
 
-  const service = new AuthService(db as unknown as PrismaService);
+  const prisma = db as unknown as PrismaService;
+
+  const service = new AuthService(
+    new UsersService(prisma),
+    new SessionService(prisma),
+  );
 
   return { service, db };
 }
@@ -68,9 +73,9 @@ describe('AuthService sessions', () => {
 
     db.user.findUnique.mockResolvedValue(null);
 
-    await expect(service.login(credentials)).rejects.toBeInstanceOf(
-      UnauthorizedException,
-    );
+    await expect(
+      service.login(credentials),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
 
     expect(db.session.create).not.toHaveBeenCalled();
   });
@@ -85,9 +90,9 @@ describe('AuthService sessions', () => {
       passwordHash: await argon2.hash('CorrectPassword123!'),
     });
 
-    await expect(service.login(credentials)).rejects.toBeInstanceOf(
-      UnauthorizedException,
-    );
+    await expect(
+      service.login(credentials),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
 
     expect(db.session.create).not.toHaveBeenCalled();
   });
@@ -106,8 +111,9 @@ describe('AuthService sessions', () => {
       expiresAt: new Date(Date.now() + 60_000),
     });
 
-    expect(await service.getAuthenticatedUser('test-token'))
-      .toEqual(user);
+    expect(
+      await service.getAuthenticatedUser('test-token'),
+    ).toEqual(user);
   });
 
   it('rejects an expired session', async () => {
@@ -122,8 +128,9 @@ describe('AuthService sessions', () => {
       expiresAt: new Date(Date.now() - 60_000),
     });
 
-    expect(await service.getAuthenticatedUser('expired-token'))
-      .toBeNull();
+    expect(
+      await service.getAuthenticatedUser('expired-token'),
+    ).toBeNull();
   });
 
   it('revokes a session on logout', async () => {

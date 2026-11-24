@@ -6,6 +6,7 @@ import { AuthService } from '../auth/auth.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ChatGateway } from './chat.gateway.js';
 import { ChatService } from './chat.service.js';
+import { ChatConnectionsService } from './chat-connections.service.js';
 
 function createMockClient() {
   const send = vi.fn();
@@ -82,8 +83,15 @@ describe('ChatGateway', () => {
       providers: [
         ChatGateway,
         ChatService,
-        { provide: PrismaService, useValue: db },
-        { provide: AuthService, useValue: auth },
+        ChatConnectionsService,
+        {
+          provide: PrismaService,
+          useValue: db,
+        },
+        {
+          provide: AuthService,
+          useValue: auth,
+        },
       ],
     }).compile();
 
