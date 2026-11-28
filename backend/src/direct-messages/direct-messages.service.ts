@@ -4,11 +4,32 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
+import { Subject } from 'rxjs';
 import { PrismaService } from '../prisma/prisma.service.js';
+
+export interface DirectMessageSavedEvent {
+  participantIds: string[];
+  message: {
+    id: string;
+    conversationId: string;
+    content: string;
+    sentAt: Date;
+    sender: {
+      id: string;
+      username: string;
+    };
+  };
+}
 
 @Injectable()
 export class DirectMessagesService {
   constructor(private readonly prisma: PrismaService) {}
+
+  private readonly messageSaved =
+    new Subject<DirectMessageSavedEvent>();
+
+  readonly savedMessages$ =
+    this.messageSaved.asObservable();
 
   async createConversation(userId: string, otherUserId: string) {
     if (userId === otherUserId) {
@@ -179,12 +200,16 @@ export class DirectMessagesService {
     };
   }
 
+  
   async sendMessage(
     userId: string,
     conversationId: string,
     content: string,
   ) {
-    await this.requireParticipant(userId, conversationId);
+    const conversation = await this.requireParticipant(
+      userId,
+      conversationId,
+    );
 
     const text = content.trim();
 
@@ -192,7 +217,7 @@ export class DirectMessagesService {
       throw new BadRequestException('Invalid message content');
     }
 
-    return this.prisma.directMessage.create({
+    const saved = await this.prisma.directMessage.create({
       data: {
         conversationId,
         senderId: userId,
@@ -208,5 +233,15 @@ export class DirectMessagesService {
         },
       },
     });
+
+    this.messageSaved.next({
+      participantIds: [
+        conversation.userAId,
+        conversation.userBId,
+      ],
+      message: saved,
+    });
+
+    return saved;
   }
 }

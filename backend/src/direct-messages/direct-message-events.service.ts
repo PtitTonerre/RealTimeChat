@@ -1,19 +1,51 @@
-import { HttpException, Injectable, Logger } from '@nestjs/common';
-import { WebSocket } from 'ws';
+import {
+  HttpException,
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+} from '@nestjs/common';
 
+import { Subscription } from 'rxjs';
+import { WebSocket } from 'ws';
 import { ChatConnectionsService } from '../chat/chat-connections.service.js';
 import { DirectMessagesService } from './direct-messages.service.js';
+import type { DirectMessageSavedEvent } from './direct-messages.service.js';
 
 @Injectable()
-export class DirectMessageEventsService {
-  private readonly logger = new Logger(DirectMessageEventsService.name);
+export class DirectMessageEventsService
+  implements OnModuleDestroy
+{
+  private readonly logger = new Logger(
+    DirectMessageEventsService.name,
+  );
+
+  private readonly subscription: Subscription;
 
   constructor(
     private readonly messages: DirectMessagesService,
     private readonly connections: ChatConnectionsService,
-  ) {}
+  ) {
+    this.subscription = this.messages.savedMessages$.subscribe(
+      (event) => {
+        void this.broadcast(event).catch((error: unknown) => {
+          this.logger.error(
+            'Failed to broadcast private message',
+            error,
+          );
+        });
+      },
+    );
+  }
 
-  private send(client: WebSocket, event: string, data: unknown): void {
+  onModuleDestroy(): void {
+    this.subscription.unsubscribe();
+  }
+
+  private send(
+    client: WebSocket,
+    event: string,
+    data: unknown,
+  ): void {
     if (client.readyState === WebSocket.OPEN) {
       client.send(JSON.stringify({ event, data }));
     }
@@ -23,7 +55,37 @@ export class DirectMessageEventsService {
     this.send(client, 'dm.error', { message });
   }
 
-  async handle(client: WebSocket, value: unknown): Promise<void> {
+  private async broadcast(
+    event: DirectMessageSavedEvent,
+  ): Promise<void> {
+    const { participantIds, message } = event;
+
+    for (const connection of this.connections.clientsForUsers(
+      participantIds,
+    )) {
+      try {
+        const recipient =
+          await this.connections.authorize(connection);
+
+        if (
+          recipient?.userId &&
+          participantIds.includes(recipient.userId)
+        ) {
+          this.send(connection, 'dm.message', message);
+        }
+      } catch (error) {
+        this.logger.warn(
+          'Failed to notify a private message recipient',
+          error,
+        );
+      }
+    }
+  }
+
+  async handle(
+    client: WebSocket,
+    value: unknown,
+  ): Promise<void> {
     const session = await this.connections.authorize(client);
     if (!session) return;
 
@@ -32,35 +94,32 @@ export class DirectMessageEventsService {
       return;
     }
 
-    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    if (
+      !value ||
+      typeof value !== 'object' ||
+      Array.isArray(value)
+    ) {
       this.error(client, 'Invalid private message');
       return;
     }
 
-    const { conversationId, content } = value as Record<string, unknown>;
+    const { conversationId, content } =
+      value as Record<string, unknown>;
 
-    if (typeof conversationId !== 'string' || typeof content !== 'string') {
+    if (
+      typeof conversationId !== 'string' ||
+      typeof content !== 'string'
+    ) {
       this.error(client, 'Invalid private message');
       return;
     }
 
     try {
-      const participantIds = await this.messages.getParticipantIds(
-        session.userId,
-        conversationId,
-      );
-      const saved = await this.messages.sendMessage(
+      await this.messages.sendMessage(
         session.userId,
         conversationId,
         content,
       );
-
-      for (const connection of this.connections.clientsForUsers(participantIds)) {
-        const recipient = await this.connections.authorize(connection);
-        if (recipient?.userId && participantIds.includes(recipient.userId)) {
-          this.send(connection, 'dm.message', saved);
-        }
-      }
     } catch (error) {
       if (error instanceof HttpException) {
         this.error(
@@ -72,7 +131,11 @@ export class DirectMessageEventsService {
         return;
       }
 
-      this.logger.error('Failed to send private message', error);
+      this.logger.error(
+        'Failed to send private message',
+        error,
+      );
+
       this.error(client, 'Could not send private message');
     }
   }

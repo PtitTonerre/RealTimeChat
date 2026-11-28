@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
+import type { AddressInfo } from 'node:net';
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
+import WebSocket from 'ws';
 
 import {
   afterAll,
@@ -18,6 +20,11 @@ const ORIGIN = 'http://localhost:5173';
 interface TestAccount {
   id: string;
   cookie: string;
+}
+
+interface SocketEvent {
+  event: string;
+  data: unknown;
 }
 
 describe('Direct messages - HTTP security (e2e)', () => {
@@ -44,7 +51,9 @@ describe('Direct messages - HTTP security (e2e)', () => {
       password: 'TestPassword12345!',
     };
 
-    const registration = await request(app.getHttpServer())
+    const registration = await request(
+      app.getHttpServer(),
+    )
       .post('/auth/register')
       .send(credentials)
       .expect(201);
@@ -52,7 +61,9 @@ describe('Direct messages - HTTP security (e2e)', () => {
     const userId = registration.body.id as string;
     createdUserIds.push(userId);
 
-    const login = await request(app.getHttpServer())
+    const login = await request(
+      app.getHttpServer(),
+    )
       .post('/auth/login')
       .send({
         email: credentials.email,
@@ -85,13 +96,13 @@ describe('Direct messages - HTTP security (e2e)', () => {
   beforeAll(async () => {
     app = await createTestApp();
 
-    // Create real accounts through the HTTP API.
     alice = await createAccount('alice');
     bob = await createAccount('bob');
     charlie = await createAccount('charlie');
 
-    // Alice creates a conversation with Charlie.
-    const conversation = await request(app.getHttpServer())
+    const conversation = await request(
+      app.getHttpServer(),
+    )
       .post('/dm/conversations')
       .set('Cookie', alice.cookie)
       .set('Origin', ORIGIN)
@@ -102,9 +113,10 @@ describe('Direct messages - HTTP security (e2e)', () => {
 
     conversationId = conversation.body.id as string;
 
-    // Alice sends an initial message.
     await request(app.getHttpServer())
-      .post(`/dm/conversations/${conversationId}/messages`)
+      .post(
+        `/dm/conversations/${conversationId}/messages`,
+      )
       .set('Cookie', alice.cookie)
       .set('Origin', ORIGIN)
       .send({
@@ -121,7 +133,9 @@ describe('Direct messages - HTTP security (e2e)', () => {
         if (createdUserIds.length > 0) {
           await prisma.user.deleteMany({
             where: {
-              id: { in: createdUserIds },
+              id: {
+                in: createdUserIds,
+              },
             },
           });
         }
@@ -134,8 +148,12 @@ describe('Direct messages - HTTP security (e2e)', () => {
   });
 
   it('allows participants to read their conversation', async () => {
-    const response = await request(app.getHttpServer())
-      .get(`/dm/conversations/${conversationId}/messages`)
+    const response = await request(
+      app.getHttpServer(),
+    )
+      .get(
+        `/dm/conversations/${conversationId}/messages`,
+      )
       .set('Cookie', charlie.cookie)
       .expect(200);
 
@@ -147,14 +165,18 @@ describe('Direct messages - HTTP security (e2e)', () => {
 
   it('forbids Bob from reading the conversation', async () => {
     await request(app.getHttpServer())
-      .get(`/dm/conversations/${conversationId}/messages`)
+      .get(
+        `/dm/conversations/${conversationId}/messages`,
+      )
       .set('Cookie', bob.cookie)
       .expect(404);
   });
 
   it('forbids Bob from sending private messages', async () => {
     await request(app.getHttpServer())
-      .post(`/dm/conversations/${conversationId}/messages`)
+      .post(
+        `/dm/conversations/${conversationId}/messages`,
+      )
       .set('Cookie', bob.cookie)
       .set('Origin', ORIGIN)
       .send({
@@ -162,9 +184,12 @@ describe('Direct messages - HTTP security (e2e)', () => {
       })
       .expect(404);
 
-    // Check that the rejected message was not saved.
-    const response = await request(app.getHttpServer())
-      .get(`/dm/conversations/${conversationId}/messages`)
+    const response = await request(
+      app.getHttpServer(),
+    )
+      .get(
+        `/dm/conversations/${conversationId}/messages`,
+      )
       .set('Cookie', alice.cookie)
       .expect(200);
 
@@ -172,7 +197,9 @@ describe('Direct messages - HTTP security (e2e)', () => {
   });
 
   it('hides the conversation from Bob', async () => {
-    const response = await request(app.getHttpServer())
+    const response = await request(
+      app.getHttpServer(),
+    )
       .get('/dm/conversations')
       .set('Cookie', bob.cookie)
       .expect(200);
@@ -180,7 +207,8 @@ describe('Direct messages - HTTP security (e2e)', () => {
     const visible = (
       response.body as Array<{ id: string }>
     ).some(
-      (conversation) => conversation.id === conversationId,
+      (conversation) =>
+        conversation.id === conversationId,
     );
 
     expect(visible).toBe(false);
@@ -192,15 +220,104 @@ describe('Direct messages - HTTP security (e2e)', () => {
       .expect(401);
 
     await request(app.getHttpServer())
-      .get(`/dm/conversations/${conversationId}/messages`)
+      .get(
+        `/dm/conversations/${conversationId}/messages`,
+      )
       .expect(401);
 
     await request(app.getHttpServer())
-      .post(`/dm/conversations/${conversationId}/messages`)
+      .post(
+        `/dm/conversations/${conversationId}/messages`,
+      )
       .set('Origin', ORIGIN)
       .send({
         content: 'Anonymous message',
       })
       .expect(401);
+  });
+
+  it('broadcasts HTTP messages over WebSocket', async () => {
+    await app.listen(0, '127.0.0.1');
+
+    const address = app
+      .getHttpServer()
+      .address() as AddressInfo;
+
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${address.port}/ws`,
+      {
+        headers: {
+          Origin: ORIGIN,
+          Cookie: charlie.cookie,
+        },
+      },
+    );
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        socket.once('open', () => resolve());
+        socket.once('error', reject);
+      });
+
+      const received = new Promise<SocketEvent>(
+        (resolve, reject) => {
+          const timeout = setTimeout(() => {
+            socket.off('message', onMessage);
+            reject(
+              new Error('WebSocket message timeout'),
+            );
+          }, 3000);
+
+          function onMessage(raw: WebSocket.RawData) {
+            let payload: SocketEvent;
+
+            try {
+              payload = JSON.parse(
+                raw.toString(),
+              ) as SocketEvent;
+            } catch {
+              return;
+            }
+
+            if (payload.event !== 'dm.message') {
+              return;
+            }
+
+            clearTimeout(timeout);
+            socket.off('message', onMessage);
+            resolve(payload);
+          }
+
+          socket.on('message', onMessage);
+        },
+      );
+
+      const response = await request(
+        app.getHttpServer(),
+      )
+        .post(
+          `/dm/conversations/${conversationId}/messages`,
+        )
+        .set('Cookie', alice.cookie)
+        .set('Origin', ORIGIN)
+        .send({
+          content: 'Message sent through HTTP',
+        })
+        .expect(201);
+
+      await expect(received).resolves.toMatchObject({
+        event: 'dm.message',
+        data: {
+          id: response.body.id,
+          conversationId,
+          content: 'Message sent through HTTP',
+          sender: {
+            id: alice.id,
+          },
+        },
+      });
+    } finally {
+      socket.terminate();
+    }
   });
 });
