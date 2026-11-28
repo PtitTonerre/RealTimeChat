@@ -1,10 +1,5 @@
-import 'dotenv/config';
 import { randomUUID } from 'node:crypto';
-import { ValidationPipe } from '@nestjs/common';
 import type { INestApplication } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
-import { WsAdapter } from '@nestjs/platform-ws';
-import cookieParser from 'cookie-parser';
 import request from 'supertest';
 
 import {
@@ -15,7 +10,7 @@ import {
   it,
 } from 'vitest';
 
-import { AppModule } from '../src/app.module.js';
+import { createTestApp } from './create-test-app.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 
 const ORIGIN = 'http://localhost:5173';
@@ -35,7 +30,6 @@ describe('Direct messages - HTTP security (e2e)', () => {
   let conversationId: string;
 
   const createdUserIds: string[] = [];
-  const previousDatabaseUrl = process.env.DATABASE_URL;
 
   async function createAccount(
     prefix: string,
@@ -89,44 +83,7 @@ describe('Direct messages - HTTP security (e2e)', () => {
   }
 
   beforeAll(async () => {
-    const testUrl = process.env.TEST_DATABASE_URL;
-
-    if (!testUrl) {
-      throw new Error('TEST_DATABASE_URL is missing');
-    }
-
-    const database = new URL(testUrl);
-
-    if (
-      database.pathname !== '/realtimechat_test' ||
-      !['localhost', '127.0.0.1'].includes(database.hostname)
-    ) {
-      throw new Error(
-        'Refusing to run E2E tests on a non-test database',
-      );
-    }
-
-    // PrismaService reads DATABASE_URL when Nest initializes.
-    process.env.DATABASE_URL = testUrl;
-
-    const module = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
-
-    app = module.createNestApplication();
-
-    app.use(cookieParser());
-    app.useWebSocketAdapter(new WsAdapter(app));
-
-    app.useGlobalPipes(
-      new ValidationPipe({
-        whitelist: true,
-        forbidNonWhitelisted: true,
-        transform: true,
-      }),
-    );
-
-    await app.init();
+    app = await createTestApp();
 
     // Create real accounts through the HTTP API.
     alice = await createAccount('alice');
@@ -172,12 +129,6 @@ describe('Direct messages - HTTP security (e2e)', () => {
     } finally {
       if (app) {
         await app.close();
-      }
-
-      if (previousDatabaseUrl === undefined) {
-        delete process.env.DATABASE_URL;
-      } else {
-        process.env.DATABASE_URL = previousDatabaseUrl;
       }
     }
   });
