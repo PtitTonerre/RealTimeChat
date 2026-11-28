@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
-
+import { useCallback, useEffect, useState } from 'react';
 import * as authApi from '../services/auth';
+
 import type {
   AuthUser,
   LoginCredentials,
@@ -15,7 +15,7 @@ export function useAuth() {
   useEffect(() => {
     let active = true;
 
-    authApi.getCurrentUser()
+    void authApi.getCurrentUser()
       .then((currentUser) => {
         if (active) {
           setUser(currentUser);
@@ -56,7 +56,26 @@ export function useAuth() {
     await authApi.logout();
 
     setUser(null);
+    setSessionError('');
   }
+
+  const invalidateSession = useCallback(async (): Promise<void> => {
+    // Hide the previous account's data immediately.
+    setChecking(true);
+    setUser(null);
+    setSessionError('Session expired. Please log in again.');
+
+    try {
+      // Clear the expired cookie before opening a guest socket.
+      await authApi.logout();
+    } catch {
+      setSessionError(
+        'Session expired. Could not clear the session cookie.',
+      );
+    } finally {
+      setChecking(false);
+    }
+  }, []);
 
   return {
     user,
@@ -65,5 +84,6 @@ export function useAuth() {
     login,
     register,
     logout,
+    invalidateSession,
   };
 }

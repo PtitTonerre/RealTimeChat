@@ -1,3 +1,5 @@
+import type { DirectMessage } from './direct-messages';
+
 export const ROOMS = [
   'general',
   'gaming',
@@ -31,4 +33,6 @@ export type ServerEvent =
         messages: ChatMessage[];
       };
     }
-  | { event: 'chat.error'; data: { message: string } };
+  | { event: 'chat.error'; data: { message: string } }
+  | { event: 'dm.message'; data: DirectMessage }
+  | { event: 'dm.error'; data: { message: string } };

@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { AuthDialog } from './components/AuthDialog';
 import { ChatWindow } from './components/ChatWindow';
+import { DirectMessagesPanel } from './components/DirectMessagesPanel';
 import { Sidebar } from './components/Sidebar';
 import { useAuth } from './hooks/useAuth';
 import { useChat } from './hooks/useChat';
-
 import './App.css';
 
 function App() {
@@ -15,7 +15,17 @@ function App() {
     login,
     register,
     logout,
+    invalidateSession,
   } = useAuth();
+
+  const [authOpen, setAuthOpen] = useState(false);
+  const [privateView, setPrivateView] = useState(false);
+  const [logoutError, setLogoutError] = useState('');
+
+  const handleInvalidSession = useCallback(() => {
+    setPrivateView(false);
+    void invalidateSession();
+  }, [invalidateSession]);
 
   const {
     connected,
@@ -26,10 +36,14 @@ function App() {
     joinRoom,
     changeUsername,
     sendMessage,
-  } = useChat(user?.id ?? null, checking);
-
-  const [authOpen, setAuthOpen] = useState(false);
-  const [logoutError, setLogoutError] = useState('');
+    directMessages,
+    directError,
+    sendDirectMessage,
+  } = useChat(
+    user?.id ?? null,
+    checking,
+    handleInvalidSession,
+  );
 
   const chatReady =
     !checking &&
@@ -42,10 +56,11 @@ function App() {
 
     try {
       await logout();
-    } catch (err) {
+      setPrivateView(false);
+    } catch (reason) {
       setLogoutError(
-        err instanceof Error
-          ? err.message
+        reason instanceof Error
+          ? reason.message
           : 'Could not log out.',
       );
     }
@@ -58,7 +73,10 @@ function App() {
         connected={chatReady}
         identity={identity}
         user={user}
-        onJoinRoom={joinRoom}
+        onJoinRoom={(nextRoom) => {
+          setPrivateView(false);
+          joinRoom(nextRoom);
+        }}
         onChangeUsername={changeUsername}
       />
 
@@ -74,40 +92,69 @@ function App() {
             )}
           </div>
 
-          {!checking && (
-            user ? (
+          <div className="account-actions">
+            {user && (
               <button
                 type="button"
-                onClick={() => void handleLogout()}
+                onClick={() =>
+                  setPrivateView((previous) => !previous)
+                }
               >
-                Log out
+                {privateView
+                  ? '← Public channels'
+                  : '✉ Private messages'}
               </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setAuthOpen(true)}
-              >
-                Log in / Register
-              </button>
-            )
-          )}
+            )}
+
+            {!checking && (
+              user ? (
+                <button
+                  type="button"
+                  onClick={() => void handleLogout()}
+                >
+                  Log out
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setAuthOpen(true)}
+                >
+                  Log in / Register
+                </button>
+              )
+            )}
+          </div>
         </header>
 
         {sessionError && (
-          <p className="account-error">{sessionError}</p>
+          <p className="account-error">
+            {sessionError}
+          </p>
         )}
 
         {logoutError && (
-          <p className="account-error">{logoutError}</p>
+          <p className="account-error">
+            {logoutError}
+          </p>
         )}
 
-        <ChatWindow
-          room={room}
-          connected={chatReady}
-          messages={messages}
-          error={error}
-          onSend={sendMessage}
-        />
+        {user && privateView ? (
+          <DirectMessagesPanel
+            key={user.id}
+            connected={chatReady}
+            incoming={directMessages}
+            directError={directError}
+            onSend={sendDirectMessage}
+          />
+        ) : (
+          <ChatWindow
+            room={room}
+            connected={chatReady}
+            messages={messages}
+            error={error}
+            onSend={sendMessage}
+          />
+        )}
       </div>
 
       {authOpen && (

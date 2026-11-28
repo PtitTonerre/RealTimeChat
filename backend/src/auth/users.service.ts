@@ -1,4 +1,3 @@
-
 import { ConflictException, Injectable } from '@nestjs/common';
 import argon2 from 'argon2';
 import { Prisma } from '../generated/prisma/client.js';
@@ -69,6 +68,29 @@ export class UsersService {
         email: true,
         passwordHash: true,
       },
+    });
+  }
+
+  async search(userId: string, search: string) {
+    const query = search.trim().toLowerCase();
+
+    if (query.length < 2 || query.length > 20) {
+      return [];
+    }
+
+    return this.prisma.user.findMany({
+      where: {
+        id: { not: userId },
+        usernameKey: { contains: query },
+      },
+      select: {
+        id: true,
+        username: true,
+      },
+      orderBy: {
+        usernameKey: 'asc',
+      },
+      take: 20,
     });
   }
 }

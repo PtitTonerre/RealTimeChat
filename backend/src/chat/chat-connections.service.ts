@@ -1,4 +1,3 @@
-
 import { Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
@@ -44,6 +43,17 @@ export class ChatConnectionsService {
   clientsInRoom(room: ChatRoom): WebSocket[] {
     return [...this.clients]
       .filter(([, session]) => session.room === room)
+      .map(([client]) => client);
+  }
+
+  clientsForUsers(userIds: string[]): WebSocket[] {
+    const allowed = new Set(userIds);
+
+    return [...this.clients]
+      .filter(([, session]) =>
+        session.userId !== null &&
+        allowed.has(session.userId),
+      )
       .map(([client]) => client);
   }
 

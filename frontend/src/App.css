@@ -360,3 +360,140 @@ button:disabled {
   color: #86efac;
   font-size: 13px;
 }
+
+/* Private messages */
+
+.account-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.dm-panel {
+  display: grid;
+  grid-template-columns: minmax(210px, 280px) minmax(0, 1fr);
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.dm-list {
+  padding: 18px 12px;
+  border-right: 1px solid #334155;
+  overflow-y: auto;
+}
+
+.dm-list h2 {
+  font-size: 18px;
+  margin: 0 0 16px;
+}
+
+.dm-search {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.dm-search input {
+  width: 100%;
+  min-width: 0;
+  padding: 9px;
+  color: #e5e7eb;
+  background: #1e293b;
+  border: 1px solid #475569;
+  border-radius: 8px;
+}
+
+.dm-search button,
+.dm-older {
+  padding: 9px;
+  border: 0;
+  border-radius: 8px;
+  color: white;
+  background: #6366f1;
+  cursor: pointer;
+}
+
+.dm-results {
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #334155;
+}
+
+.dm-results button,
+.dm-item {
+  display: block;
+  width: 100%;
+  padding: 12px;
+  margin-bottom: 4px;
+  text-align: left;
+  color: #e5e7eb;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.dm-results button:hover,
+.dm-item:hover,
+.dm-item.active {
+  background: #334155;
+}
+
+.dm-item strong,
+.dm-item small {
+  display: block;
+}
+
+.dm-item small {
+  color: #94a3b8;
+  margin-top: 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dm-muted {
+  color: #94a3b8;
+  font-size: 13px;
+}
+
+.dm-thread {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.dm-older {
+  display: block;
+  margin: 0 auto 18px;
+}
+
+@media (max-width: 760px) {
+  .sidebar {
+    width: 160px;
+    padding: 16px 8px;
+  }
+
+  .dm-panel {
+    grid-template-columns: 170px minmax(0, 1fr);
+  }
+
+  .dm-search {
+    flex-wrap: wrap;
+  }
+
+  .chat-header {
+    padding: 12px;
+  }
+
+  .chat-header h2 {
+    font-size: 16px;
+  }
+
+  .account-bar {
+    padding: 10px;
+  }
+}

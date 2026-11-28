@@ -2,11 +2,11 @@
 import { ConflictException } from '@nestjs/common';
 import argon2 from 'argon2';
 import { describe, expect, it, vi } from 'vitest';
-import { Prisma } from '../generated/prisma/client.js';
-import type { PrismaService } from '../prisma/prisma.service.js';
-import { AuthService } from './auth.service.js';
-import { SessionService } from './session.service.js';
-import { UsersService } from './users.service.js';
+import { Prisma } from '../../src/generated/prisma/client.js';
+import type { PrismaService } from '../../src/prisma/prisma.service.js';
+import { AuthService } from '../../src/auth/auth.service.js';
+import { SessionService } from '../../src/auth/session.service.js';
+import { UsersService } from '../../src/auth/users.service.js';
 
 describe('AuthService', () => {
   const input = {

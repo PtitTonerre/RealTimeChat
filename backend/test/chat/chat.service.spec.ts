@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { PrismaService } from '../prisma/prisma.service.js';
-import { ChatService } from './chat.service.js';
+import type { PrismaService } from '../../src/prisma/prisma.service.js';
+import { ChatService } from '../../src/chat/chat.service.js';
 
 function createMockDatabase() {
   return {

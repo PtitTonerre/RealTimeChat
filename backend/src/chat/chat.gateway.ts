@@ -11,6 +11,7 @@ import {
   WebSocketGateway,
 } from '@nestjs/websockets';
 
+import { DirectMessageEventsService } from '../direct-messages/direct-message-events.service.js';
 import { ChatConnectionsService } from './chat-connections.service.js';
 import { ChatService, type ChatRoom } from './chat.service.js';
 
@@ -23,16 +24,25 @@ export class ChatGateway
   constructor(
     private readonly chat: ChatService,
     private readonly connections: ChatConnectionsService,
+    private readonly directEvents: DirectMessageEventsService,
   ) {}
 
-  private send(client: WebSocket, event: string, data: unknown): void {
+  private send(
+    client: WebSocket,
+    event: string,
+    data: unknown,
+  ): void {
     if (client.readyState === WebSocket.OPEN) {
       client.send(JSON.stringify({ event, data }));
     }
   }
 
-  private error(client: WebSocket, message: string): void {
-    this.send(client, 'chat.error', { message });
+  private error(
+    client: WebSocket,
+    message: string,
+    event = 'chat.error',
+  ): void {
+    this.send(client, event, { message });
   }
 
   private async sendHistory(
@@ -102,12 +112,14 @@ export class ChatGateway
     if (!session) return;
 
     const room = this.chat.parseRoom(value);
+
     if (!room) {
       this.error(client, 'Unknown room');
       return;
     }
 
     session.room = room;
+
     this.send(client, 'chat.joined', { room });
     await this.sendHistory(client, room);
   }
@@ -141,5 +153,13 @@ export class ChatGateway
       this.logger.error('Failed to save chat message', error);
       this.error(client, 'Could not save your message');
     }
+  }
+
+  @SubscribeMessage('dm.send')
+  sendDirectMessage(
+    @ConnectedSocket() client: WebSocket,
+    @MessageBody() value: unknown,
+  ): Promise<void> {
+    return this.directEvents.handle(client, value);
   }
 }
